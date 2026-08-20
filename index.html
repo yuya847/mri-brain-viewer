@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0c10">
+<title>MRI Viewer — Brain</title>
+<style>
+  :root{
+    --bg:#0a0c10; --panel:#12161d; --panel2:#171c25; --line:#232b38;
+    --fg:#dbe3ee; --dim:#8290a4; --accent:#4da3ff; --accent2:#1f6fd0;
+    --warn:#ffb648;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--fg);overflow:hidden;overscroll-behavior:none;
+    font:13px/1.45 -apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #app{display:grid;grid-template-columns:170px 1fr;height:100%}
+
+  /* ---------- sidebar ---------- */
+  #side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  #sideHead{padding:10px 12px;border-bottom:1px solid var(--line)}
+  #sideHead h1{margin:0;font-size:12px;letter-spacing:.08em;color:var(--dim);font-weight:600}
+  #sideHead .pid{font-size:14px;font-weight:600;margin-top:3px}
+  #sideHead .meta{font-size:11px;color:var(--dim)}
+  #serList{overflow-y:auto;flex:1;padding:6px}
+  .ser{display:flex;gap:8px;align-items:center;padding:6px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .ser:hover{background:var(--panel2)}
+  .ser.on{background:#16324e;border-color:var(--accent2)}
+  .ser img{width:46px;height:46px;object-fit:cover;background:#000;border-radius:4px;flex:none}
+  .ser .t{min-width:0}
+  .ser .n{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ser .c{font-size:10.5px;color:var(--dim)}
+  #hint{padding:8px 12px;border-top:1px solid var(--line);font-size:10.5px;color:var(--dim);line-height:1.7}
+  #hint b{color:#a9b6c8;font-weight:600}
+  kbd{background:#222b38;border:1px solid #313d4f;border-bottom-width:2px;border-radius:3px;padding:0 4px;font:11px/1.5 ui-monospace,monospace;color:#c3cddb}
+
+  /* ---------- main ---------- */
+  #main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  #bar{display:flex;align-items:center;gap:4px;padding:6px 8px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:#1e2531;border-color:#33415a}
+  .btn.on{background:var(--accent2);border-color:var(--accent);color:#fff}
+  .sep{width:1px;height:20px;background:var(--line);margin:0 5px}
+  .grp{display:flex;gap:3px}
+  #bar label{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:5px}
+  input[type=range]{accent-color:var(--accent);height:18px}
+
+  #stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;touch-action:none;cursor:crosshair}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .ov{position:absolute;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfe0f5;text-shadow:0 1px 3px #000,0 0 2px #000;pointer-events:none;white-space:pre}
+  #ovTL{top:8px;left:10px}
+  #ovTR{top:8px;right:10px;text-align:right}
+  #ovBL{bottom:8px;left:10px}
+  #ovBR{bottom:8px;right:10px;text-align:right}
+  #ovTL .hl,#ovTR .hl{color:#fff;font-size:12.5px;font-weight:600}
+  #ovBR .im{color:var(--warn);font-size:13px;font-weight:600}
+
+  #zenExit{display:none;position:absolute;z-index:5;top:calc(8px + env(safe-area-inset-top));right:10px;
+           width:34px;height:34px;padding:0;border-radius:17px;background:#000a;font-size:15px}
+  body.zen #side,body.zen #bar,body.zen #foot{display:none}
+  body.zen #app{grid-template-columns:1fr;grid-template-rows:1fr}
+  body.zen #zenExit{display:block}
+  body.zen .ov{padding-top:env(safe-area-inset-top)}
+  body.zen #ovTR{right:52px}
+
+  #foot{display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--panel);border-top:1px solid var(--line)}
+  #slider{flex:1}
+  #pos{font:12px ui-monospace,monospace;color:var(--dim);min-width:72px;text-align:right}
+
+  #toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#000a;border:1px solid var(--line);
+         border-radius:20px;padding:5px 14px;font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.on{opacity:1}
+
+  @media (max-width:760px){
+    #app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    #side{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);align-items:center;
+          padding-top:env(safe-area-inset-top)}
+    #sideHead,#hint{display:none}
+    #serList{display:flex;flex:1;padding:6px;gap:6px;overflow-x:auto;overflow-y:hidden}
+    .ser{flex-direction:column;min-width:74px;padding:5px}
+    .ser img{width:52px;height:52px}
+    .ser .n{font-size:10.5px;max-width:66px}
+    /* ツールバーは折り返さず横スクロール（縦を画像に使う） */
+    #bar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding:6px}
+    .btn{padding:8px 12px;font-size:13px}
+    #bar label{flex:none}
+    #foot{padding-bottom:calc(7px + env(safe-area-inset-bottom))}
+    .ov{font-size:10.5px}
+    #ovTL .hl,#ovTR .hl{font-size:11.5px}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div id="sideHead">
+      <h1>MRI VIEWER</h1>
+      <div class="pid" id="pPid"></div>
+      <div class="meta" id="pMeta"></div>
+    </div>
+    <div id="serList"></div>
+    <div id="hint">
+      <b>ホイール</b> スライス送り<br>
+      <b>ドラッグ</b> 選択中のツール<br>
+      <b>右ドラッグ</b> 拡大縮小<br>
+      <b>中ドラッグ / Shift</b> 移動<br>
+      <kbd>↑</kbd><kbd>↓</kbd> スライス　<kbd>Space</kbd> 再生<br>
+      <kbd>1</kbd>–<kbd>6</kbd> シリーズ切替<br>
+      <kbd>R</kbd> リセット　<kbd>I</kbd> 白黒反転<br>
+      <kbd>F</kbd> 全画面
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="bar">
+      <div class="grp">
+        <button class="btn" data-tool="wl">階調 W/L</button>
+        <button class="btn" data-tool="scroll">スライス</button>
+        <button class="btn" data-tool="pan">移動</button>
+        <button class="btn" data-tool="zoom">拡大</button>
+        <button class="btn" data-tool="measure">計測</button>
+      </div>
+      <div class="sep"></div>
+      <button class="btn" id="bPlay">▶ 再生</button>
+      <label>fps <input type="range" id="fps" min="2" max="40" value="14" style="width:80px"><span id="fpsV">14</span></label>
+      <div class="sep"></div>
+      <button class="btn" id="bFit">全体表示</button>
+      <button class="btn" id="b11">1:1</button>
+      <button class="btn" id="bInv">反転</button>
+      <button class="btn" id="bSmooth">補間</button>
+      <button class="btn" id="bClear">計測消去</button>
+      <button class="btn" id="bReset">リセット</button>
+      <button class="btn" id="bZen">⤢ 全画面</button>
+      <div class="sep"></div>
+      <select class="btn" id="preset" title="ウィンドウプリセット">
+        <option value="def">既定ウィンドウ</option>
+        <option value="soft">やわらか(広い)</option>
+        <option value="hard">くっきり(狭い)</option>
+        <option value="bright">明るめ</option>
+        <option value="dark">暗め</option>
+      </select>
+    </div>
+
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div class="ov" id="ovTL"></div>
+      <div class="ov" id="ovTR"></div>
+      <div class="ov" id="ovBL"></div>
+      <div class="ov" id="ovBR"></div>
+      <div id="toast"></div>
+      <button class="btn" id="zenExit" title="全画面を解除">✕</button>
+    </div>
+
+    <div id="foot">
+      <button class="btn" id="bPrev">◀</button>
+      <input type="range" id="slider" min="0" max="0" value="0">
+      <button class="btn" id="bNext">▶</button>
+      <div id="pos"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 画像一覧。convert.py が下の 2 行を書き換えます -->
+<script>/*MANIFEST_START*/
+const MANIFEST = {"patient": {"modality": "MR", "study": "Brain", "device": "Philips Prodiva CS", "label": "Case 01 — Brain MRI"}, "series": [{"num": 201, "desc": "MRA_Inflow", "count": 140, "rows": 560, "cols": 560, "wc": 93.12, "ww": 161.88, "pixelSpacing": [0.3392857074737417, 0.3392857074737417], "thickness": 1.2, "spacing": 0.6, "tr": 25.0, "te": 6.905, "dir": "images/s201"}, {"num": 202, "desc": "MIP RL", "count": 18, "rows": 560, "cols": 560, "wc": 151.4, "ww": 159.78, "pixelSpacing": [0.3582046781267383, 0.3582046781267383], "thickness": 295.59, "spacing": 295.59, "tr": 25.0, "te": 6.905, "dir": "images/s202"}, {"num": 203, "desc": "MIP FH", "count": 18, "rows": 560, "cols": 560, "wc": 150.31, "ww": 158.63, "pixelSpacing": [0.3582046781267383, 0.3582046781267383], "thickness": 295.59, "spacing": 295.59, "tr": 25.0, "te": 6.905, "dir": "images/s203"}, {"num": 301, "desc": "T2w_Tra fast", "count": 25, "rows": 512, "cols": 512, "wc": 96.28, "ww": 171.17, "pixelSpacing": [0.44921875, 0.44921875], "thickness": 5.0, "spacing": 6.0, "tr": 5146.99267578125, "te": 100.0, "dir": "images/s301"}, {"num": 401, "desc": "T1w_Tra fast", "count": 25, "rows": 560, "cols": 560, "wc": 121.88, "ww": 133.12, "pixelSpacing": [0.4107142899717557, 0.4107142899717557], "thickness": 5.0, "spacing": 6.0, "tr": 712.952514648437, "te": 14.0, "dir": "images/s401"}, {"num": 501, "desc": "FLAIR_Tra", "count": 25, "rows": 560, "cols": 560, "wc": 72.09, "ww": 216.27, "pixelSpacing": [0.4107142823082994, 0.4107142823082994], "thickness": 5.0, "spacing": 6.0, "tr": 11000.0, "te": 125.0, "dir": "images/s501"}]};
+/*MANIFEST_END*/</script>
+<script>
+(function(){
+"use strict";
+const $ = s => document.querySelector(s);
+const SER = MANIFEST.series, PT = MANIFEST.patient;
+
+const S = {
+  si:0, idx:0, zoom:1, fit:1, panX:0, panY:0,
+  wc:128, ww:255, invert:false, smooth:true,
+  playing:false, fps:14, tool:'wl', dirty:true
+};
+window.__mri = S;           // デバッグ用に状態を公開
+const marks = {};           // marks["si:idx"] = [{x1,y1,x2,y2}]  (画像座標)
+
+/* ---------------- サイドバー ---------------- */
+const PID = PT.label || (PT.id ? 'ID ' + PT.id : '');
+$('#pPid').textContent = PID;
+$('#pMeta').innerHTML = [
+  [PT.sex, PT.age && (parseInt(PT.age,10)+'歳')].filter(Boolean).join(' / '),
+  [PT.modality, PT.study].filter(Boolean).join(' '),
+  fmtDate(PT.date)
+].filter(Boolean).map(esc).join('<br>');
+if(PT.label) document.title = PT.label + ' — MRI Viewer';
+
+const serList = $('#serList');
+SER.forEach((s,i)=>{
+  const d = document.createElement('div');
+  d.className = 'ser'; d.dataset.i = i;
+  d.innerHTML = `<img src="${s.thumb || (s.dir+'/thumb.jpg')}" alt=""><div class="t">
+      <div class="n">${esc(s.desc)}</div><div class="c">S${s.num} · ${s.count}枚</div></div>`;
+  d.onclick = ()=>selectSeries(i);
+  serList.appendChild(d);
+});
+
+/* ---------------- 画像読み込み ----------------
+   2 モード共通。
+     url  : images/sXXX/0000.jpg を読む（フォルダ版）
+     data : HTML に埋め込まれた data URL を読む（配布用 1 ファイル版）
+   デコード済み画像は LRU で上限を設ける。スマホでメモリを食い潰さないため。   */
+const MODE = (typeof SLICE_DATA !== 'undefined' && SLICE_DATA) ? 'data' : 'url';
+const CAP  = MODE === 'data' ? 90 : 600;    // 同時に保持するデコード済み画像の枚数
+const WIN  = MODE === 'data' ? 16 : 1e9;    // 現在スライスから何枚先まで先読みするか
+const store = new Map();                    // "si:k" -> Image（挿入順 = LRU）
+
+function srcOf(si, k){
+  return MODE === 'data' ? SLICE_DATA[si][k]
+                         : `${SER[si].dir}/${String(k).padStart(4,'0')}.jpg`;
+}
+function getImg(si, k, create){
+  const key = si+':'+k;
+  const hit = store.get(key);
+  if(hit){ store.delete(key); store.set(key, hit); return hit; }   // LRU touch
+  if(!create) return null;
+  const im = new Image();
+  im.decoding = 'async';
+  im.onload = ()=>{ if(si === S.si) S.dirty = true; };
+  im.src = srcOf(si, k);
+  store.set(key, im);
+  trim();
+  return im;
+}
+function trim(){
+  if(store.size <= CAP) return;
+  const n = SER[S.si].count, keep = new Set();
+  for(let d = -4; d <= 4; d++) keep.add(S.si+':'+(((S.idx+d)%n+n)%n));  // 表示中の前後は残す
+  for(const key of [...store.keys()]){
+    if(store.size <= CAP) break;
+    if(keep.has(key)) continue;
+    store.get(key).onload = null;
+    store.delete(key);
+  }
+}
+/* 表示中スライスから外側へ広がる順に先読み。1 回の呼び出しで最大 3 枚まで開始する。 */
+function prefetch(){
+  const n = SER[S.si].count, far = Math.min(WIN, n);
+  let budget = 3;
+  for(let d = 0; d <= far && budget > 0; d++){
+    const a = (S.idx+d)%n, b = ((S.idx-d)%n+n)%n;
+    if(!store.has(S.si+':'+a)){ getImg(S.si, a, true); budget--; }
+    if(d && budget > 0 && !store.has(S.si+':'+b)){ getImg(S.si, b, true); budget--; }
+  }
+}
+
+/* ---------------- シリーズ選択 ---------------- */
+function selectSeries(i, keepView){
+  S.si = i; S.idx = Math.min(S.idx, SER[i].count-1);
+  if(!keepView){ S.idx = Math.floor(SER[i].count/2); resetView(); }
+  applyPreset('def');
+  prefetch();
+  [...serList.children].forEach((e,k)=>e.classList.toggle('on', k===i));
+  $('#slider').max = SER[i].count-1;
+  S.dirty = true;
+}
+function resetView(){ S.zoom = 1; S.panX = 0; S.panY = 0; }
+function applyPreset(p){
+  const s = SER[S.si];
+  const k = {def:[1,1], soft:[1,1.8], hard:[1,0.55], bright:[0.72,1], dark:[1.35,1]}[p] || [1,1];
+  S.wc = s.wc * k[0]; S.ww = Math.max(4, s.ww * k[1]); S.dirty = true;
+}
+
+/* ---------------- 描画 ---------------- */
+const cv = $('#cv'), ctx = cv.getContext('2d');
+let CW=0, CH=0, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  const r = $('#stage').getBoundingClientRect();
+  CW = Math.round(r.width); CH = Math.round(r.height);
+  cv.width = Math.round(CW*DPR); cv.height = Math.round(CH*DPR);
+  S.dirty = true;
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>setTimeout(resize, 120));
+// ツールバーの折り返しや iOS のアドレスバー伸縮でも実寸を取り直す
+if(window.ResizeObserver) new ResizeObserver(resize).observe($('#stage'));
+
+function curImg(){
+  const im = getImg(S.si, S.idx, true);
+  return (im && im.complete && im.naturalWidth) ? im : null;
+}
+function fitOf(im){ return Math.min(CW/im.naturalWidth, CH/im.naturalHeight); }
+function view(im){                       // 画像→画面 の変換
+  S.fit = fitOf(im);
+  const sc = S.fit * S.zoom;
+  return {sc, ox: CW/2 + S.panX - im.naturalWidth*sc/2, oy: CH/2 + S.panY - im.naturalHeight*sc/2};
+}
+
+let frame = 0;
+function draw(){
+  if((frame++ % 30) === 0){                 // 保険: 実寸がずれていたら取り直す
+    const r = stage.getBoundingClientRect();
+    if(Math.round(r.width) !== CW || Math.round(r.height) !== CH) resize();
+  }
+  prefetch();
+  if(S.dirty){
+    S.dirty = false;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.filter = 'none';
+    ctx.fillStyle = '#000'; ctx.fillRect(0,0,CW,CH);
+    const im = curImg();
+    if(im){
+      // W/L を canvas filter で。 out = a*x + c  ( a=255/ww, c=-(wc-ww/2)/ww )
+      const a = 255/S.ww, c = -(S.wc - S.ww/2)/S.ww;
+      let k = 1 - 2*c; if(k < 0.02) k = 0.02;
+      const b = a/k;
+      ctx.filter = `brightness(${b.toFixed(4)}) contrast(${k.toFixed(4)})` + (S.invert ? ' invert(1)' : '');
+      ctx.imageSmoothingEnabled = S.smooth;
+      ctx.imageSmoothingQuality = 'high';
+      const v = view(im);
+      ctx.drawImage(im, v.ox, v.oy, im.naturalWidth*v.sc, im.naturalHeight*v.sc);
+      ctx.filter = 'none';
+      drawMarks(v);
+      drawScale(v);
+    }else{
+      ctx.fillStyle = '#4a586b'; ctx.font = '13px monospace'; ctx.textAlign='center';
+      ctx.fillText('読み込み中…', CW/2, CH/2); ctx.textAlign='start';
+    }
+    overlay();
+  }
+  requestAnimationFrame(draw);
+}
+
+function drawMarks(v){
+  const s = SER[S.si], ps = s.pixelSpacing && s.pixelSpacing[0];
+  const list = marks[S.si+':'+S.idx] || [];
+  ctx.lineWidth = 1.4; ctx.strokeStyle = '#ffd24d'; ctx.fillStyle = '#ffd24d';
+  ctx.font = '12px ui-monospace,monospace';
+  const all = drag && drag.tool==='measure' && drag.m ? list.concat([drag.m]) : list;
+  all.forEach(m=>{
+    const x1 = v.ox+m.x1*v.sc, y1 = v.oy+m.y1*v.sc, x2 = v.ox+m.x2*v.sc, y2 = v.oy+m.y2*v.sc;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    [[x1,y1],[x2,y2]].forEach(p=>{ ctx.beginPath(); ctx.arc(p[0],p[1],3,0,7); ctx.fill(); });
+    const d = Math.hypot(m.x2-m.x1, m.y2-m.y1) * (ps||1);
+    ctx.fillText(ps ? d.toFixed(1)+' mm' : d.toFixed(0)+' px', x2+7, y2-6);
+  });
+}
+function drawScale(v){                    // 右下のスケールバー
+  const ps = SER[S.si].pixelSpacing && SER[S.si].pixelSpacing[0];
+  if(!ps) return;
+  const target = 100, mm = niceMM(target/(v.sc/ps));
+  const px = mm/ps*v.sc; if(px < 20 || px > CW*0.5) return;
+  const x = CW/2 - px/2, y = CH-26;
+  ctx.strokeStyle='#9fb4cc'; ctx.fillStyle='#9fb4cc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(x,y-5); ctx.lineTo(x,y); ctx.lineTo(x+px,y); ctx.lineTo(x+px,y-5); ctx.stroke();
+  ctx.font='11px ui-monospace,monospace'; ctx.textAlign='center';
+  ctx.fillText(mm>=10 ? (mm/10)+' cm' : mm+' mm', x+px/2, y+13); ctx.textAlign='start';
+}
+function niceMM(v){ const c=[5,10,20,30,50,100,150,200]; return c.reduce((a,b)=>Math.abs(b-v)<Math.abs(a-v)?b:a); }
+
+function overlay(){
+  const s = SER[S.si], im = curImg();
+  $('#ovTL').innerHTML = [
+    [PT.label || PT.study, fmtDate(PT.date)].filter(Boolean).join('  '),
+    [PT.id && 'ID ' + PT.id, PT.sex, PT.age && parseInt(PT.age,10)+'y'].filter(Boolean).join('  '),
+    PT.device
+  ].filter(Boolean).map((t,i)=> i ? esc(t) : `<span class="hl">${esc(t)}</span>`).join('\n');
+  $('#ovTR').innerHTML = `<span class="hl">S${s.num}  ${esc(s.desc)}</span>\n`
+    + `${s.cols}×${s.rows}   ${s.thickness?('厚 '+s.thickness+' mm'):''}\n`
+    + `${s.tr?('TR '+Math.round(s.tr)):''} ${s.te?('/ TE '+(+s.te).toFixed(1)):''}`;
+  $('#ovBL').textContent = `W ${Math.round(S.ww)}  L ${Math.round(S.wc)}\n`
+    + `Zoom ${(S.zoom*100).toFixed(0)}%${S.invert?'  INV':''}`;
+  $('#ovBR').innerHTML = `<span class="im">Im ${S.idx+1} / ${s.count}</span>\n`
+    + `${s.spacing?('間隔 '+s.spacing+' mm'):''}`;
+  $('#pos').textContent = `${S.idx+1} / ${s.count}`;
+  $('#slider').value = S.idx;
+}
+
+/* ---------------- 操作 ---------------- */
+function setIdx(v){
+  const n = SER[S.si].count;
+  S.idx = ((v % n) + n) % n;
+  S.dirty = true;
+}
+const stage = $('#stage');
+let wheelAcc = 0;
+stage.addEventListener('wheel', e=>{
+  e.preventDefault();
+  if(e.ctrlKey || e.metaKey){                   // ピンチ/⌘ホイール = 拡大縮小
+    zoomAt(e.offsetX, e.offsetY, Math.exp(-e.deltaY*0.01));
+    return;
+  }
+  if(e.deltaMode !== 0 || Math.abs(e.deltaY) >= 40){   // マウスホイール: 1ノッチ = 1枚
+    wheelAcc = 0; setIdx(S.idx + Math.sign(e.deltaY));
+  }else{                                               // トラックパッド: 細かい delta を積算
+    wheelAcc += e.deltaY;
+    while(Math.abs(wheelAcc) >= 14){
+      setIdx(S.idx + Math.sign(wheelAcc)); wheelAcc -= Math.sign(wheelAcc)*14;
+    }
+  }
+}, {passive:false});
+
+function zoomAt(cx, cy, f){
+  const im = curImg(); if(!im) return;
+  const v0 = view(im);
+  const ix = (cx - v0.ox)/v0.sc, iy = (cy - v0.oy)/v0.sc;
+  S.zoom = Math.min(12, Math.max(0.15, S.zoom*f));
+  const v1 = view(im);
+  S.panX += cx - (v1.ox + ix*v1.sc);
+  S.panY += cy - (v1.oy + iy*v1.sc);
+  S.dirty = true;
+}
+
+let drag = null;
+stage.addEventListener('contextmenu', e=>e.preventDefault());
+stage.addEventListener('pointerdown', e=>{
+  if(touch) return;                       // 2 本指ジェスチャ中は無視
+  try{ stage.setPointerCapture(e.pointerId); }catch(_){}
+  let tool = S.tool;
+  if(e.button === 1 || e.shiftKey) tool = 'pan';
+  else if(e.button === 2) tool = 'zoom';
+  else if(e.altKey) tool = 'scroll';
+  const im = curImg(), v = im ? view(im) : null;
+  drag = {tool, x:e.offsetX, y:e.offsetY, x0:e.offsetX, y0:e.offsetY,
+          wc:S.wc, ww:S.ww, idx:S.idx, zoom:S.zoom, panX:S.panX, panY:S.panY, m:null,
+          // 画面を上から下までなぞると 1 シリーズ分。ただし 1 枚あたり 4〜20px に収める
+          step: Math.min(20, Math.max(4, CH/SER[S.si].count))};
+  if(tool === 'measure' && v){
+    drag.m = {x1:(e.offsetX-v.ox)/v.sc, y1:(e.offsetY-v.oy)/v.sc, x2:(e.offsetX-v.ox)/v.sc, y2:(e.offsetY-v.oy)/v.sc};
+  }
+});
+stage.addEventListener('pointermove', e=>{
+  if(!drag || touch) return;
+  const dx = e.offsetX - drag.x0, dy = e.offsetY - drag.y0;
+  if(drag.tool === 'wl'){
+    S.wc = Math.max(0, Math.min(255, drag.wc + dy*0.6));
+    S.ww = Math.max(4, Math.min(512, drag.ww + dx*1.0));
+  }else if(drag.tool === 'scroll'){
+    setIdx(drag.idx + Math.round(dy/drag.step));
+  }else if(drag.tool === 'pan'){
+    S.panX = drag.panX + dx; S.panY = drag.panY + dy;
+  }else if(drag.tool === 'zoom'){
+    S.zoom = Math.min(12, Math.max(0.15, drag.zoom * Math.exp(-dy*0.006)));
+  }else if(drag.tool === 'measure' && drag.m){
+    const im = curImg(); if(im){ const v = view(im);
+      drag.m.x2 = (e.offsetX-v.ox)/v.sc; drag.m.y2 = (e.offsetY-v.oy)/v.sc; }
+  }
+  S.dirty = true;
+});
+function endDrag(){
+  if(drag && drag.tool === 'measure' && drag.m){
+    if(Math.hypot(drag.m.x2-drag.m.x1, drag.m.y2-drag.m.y1) > 3){
+      const k = S.si+':'+S.idx; (marks[k] = marks[k] || []).push(drag.m);
+    }
+  }
+  drag = null; S.dirty = true;
+}
+stage.addEventListener('pointerup', endDrag);
+stage.addEventListener('pointercancel', endDrag);
+
+/* タッチ: 1 本指 = 選択中のツール（スマホの既定はスライス送り）
+           2 本指 = ピンチ拡大 + 移動、ダブルタップ = 全体表示 / 等倍 */
+let touch = null, lastTap = 0;
+stage.addEventListener('touchstart', e=>{
+  if(e.touches.length >= 2){
+    drag = null;
+    touch = {d:tdist(e), c:tcenter(e), zoom:S.zoom, panX:S.panX, panY:S.panY};
+  }
+}, {passive:true});
+stage.addEventListener('touchmove', e=>{
+  if(!touch || e.touches.length < 2) return;
+  e.preventDefault();
+  const im = curImg(); if(!im) return;
+  const c = tcenter(e);
+  S.zoom = touch.zoom; S.panX = touch.panX; S.panY = touch.panY;
+  const v0 = view(im);                                   // 指の中心にある画像上の点を固定して拡大する
+  const ix = (touch.c.x - v0.ox)/v0.sc, iy = (touch.c.y - v0.oy)/v0.sc;
+  S.zoom = Math.min(12, Math.max(0.15, touch.zoom * tdist(e)/touch.d));
+  const v1 = view(im);
+  S.panX += c.x - (v1.ox + ix*v1.sc);
+  S.panY += c.y - (v1.oy + iy*v1.sc);
+  S.dirty = true;
+}, {passive:false});
+stage.addEventListener('touchend', e=>{
+  if(e.touches.length < 2) touch = null;
+  if(e.touches.length === 0 && e.changedTouches.length === 1){
+    const now = performance.now();
+    if(now - lastTap < 320){ (S.zoom > 1.05 ? $('#bFit') : $('#b11')).click(); lastTap = 0; }
+    else lastTap = now;
+  }
+});
+function tpt(t){ const r = stage.getBoundingClientRect(); return {x:t.clientX-r.left, y:t.clientY-r.top}; }
+function tdist(e){ const a=tpt(e.touches[0]), b=tpt(e.touches[1]); return Math.hypot(a.x-b.x, a.y-b.y) || 1; }
+function tcenter(e){ const a=tpt(e.touches[0]), b=tpt(e.touches[1]); return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
+
+/* ---------------- ツールバー ---------------- */
+function setTool(t){
+  S.tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('on', b.dataset.tool===t));
+  stage.style.cursor = {wl:'crosshair', scroll:'ns-resize', pan:'grab', zoom:'zoom-in', measure:'crosshair'}[t];
+}
+document.querySelectorAll('[data-tool]').forEach(b=> b.onclick = ()=>setTool(b.dataset.tool));
+$('#bFit').onclick = ()=>{ resetView(); S.dirty=true; };
+$('#b11').onclick  = ()=>{ const im=curImg(); if(im){ S.zoom = 1/fitOf(im); S.panX=S.panY=0; S.dirty=true; } };
+$('#bInv').onclick = ()=>{ S.invert = !S.invert; $('#bInv').classList.toggle('on', S.invert); S.dirty=true; };
+$('#bSmooth').onclick = ()=>{ S.smooth = !S.smooth; $('#bSmooth').classList.toggle('on', S.smooth); S.dirty=true; };
+$('#bClear').onclick = ()=>{ Object.keys(marks).forEach(k=>delete marks[k]); S.dirty=true; toast('計測を消去'); };
+const zen = on=>{ document.body.classList.toggle('zen', on); setTimeout(resize, 60); setTimeout(()=>{S.dirty=true;}, 90); };
+$('#bZen').onclick = ()=>zen(true);
+$('#zenExit').onclick = ()=>zen(false);
+$('#bReset').onclick = ()=>{ resetView(); applyPreset($('#preset').value='def'); S.invert=false; $('#bInv').classList.remove('on'); };
+$('#preset').onchange = e=>{ applyPreset(e.target.value); toast(e.target.selectedOptions[0].text); };
+$('#bPrev').onclick = ()=>setIdx(S.idx-1);
+$('#bNext').onclick = ()=>setIdx(S.idx+1);
+$('#slider').oninput = e=>{ S.idx = +e.target.value; S.dirty = true; };
+$('#fps').oninput = e=>{ S.fps = +e.target.value; $('#fpsV').textContent = S.fps; };
+
+let timer = null;
+function play(on){
+  S.playing = on;
+  $('#bPlay').textContent = on ? '❚❚ 停止' : '▶ 再生';
+  $('#bPlay').classList.toggle('on', on);
+  clearInterval(timer);
+  if(on) timer = setInterval(()=>setIdx(S.idx+1), 1000/S.fps);
+}
+$('#bPlay').onclick = ()=>play(!S.playing);
+$('#fps').addEventListener('change', ()=>{ if(S.playing) play(true); });
+
+/* ---------------- キーボード ---------------- */
+window.addEventListener('keydown', e=>{
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const k = e.key;
+  if(k === 'ArrowDown' || k === 'ArrowRight'){ setIdx(S.idx+1); e.preventDefault(); }
+  else if(k === 'ArrowUp' || k === 'ArrowLeft'){ setIdx(S.idx-1); e.preventDefault(); }
+  else if(k === 'PageDown'){ setIdx(S.idx+10); e.preventDefault(); }
+  else if(k === 'PageUp'){ setIdx(S.idx-10); e.preventDefault(); }
+  else if(k === 'Home'){ setIdx(0); }
+  else if(k === 'End'){ setIdx(SER[S.si].count-1); }
+  else if(k === ' '){ play(!S.playing); e.preventDefault(); }
+  else if(k === 'r' || k === 'R'){ $('#bReset').click(); }
+  else if(k === 'i' || k === 'I'){ $('#bInv').click(); }
+  else if(k === '+' || k === '='){ zoomAt(CW/2, CH/2, 1.2); }
+  else if(k === '-'){ zoomAt(CW/2, CH/2, 1/1.2); }
+  else if(k === 'f' || k === 'F'){ zen(!document.body.classList.contains('zen')); }
+  else if(k === 'Escape'){ zen(false); }
+  else if(/^[1-9]$/.test(k) && +k <= SER.length){ selectSeries(+k-1); toast(SER[+k-1].desc); }
+});
+
+/* ---------------- utils ---------------- */
+let toastT;
+function toast(m, ms){ const t=$('#toast'); t.textContent=m; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('on'), ms || 1100); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function fmtDate(d){ return (d && d.length===8) ? `${d.slice(0,4)}/${d.slice(4,6)}/${d.slice(6)}` : (d||''); }
+
+/* ---------------- start ---------------- */
+const COARSE = matchMedia('(pointer: coarse)').matches;   // スマホ・タブレット
+resize();
+setTool(COARSE ? 'scroll' : 'wl');       // 指なら 1 本指スワイプでスライス送りが自然
+const first = SER.findIndex(s=>/T2|FLAIR/i.test(s.desc));
+selectSeries(first >= 0 ? first : 0);
+$('#bSmooth').classList.add('on');
+if(COARSE) setTimeout(()=>toast('1本指で上下スワイプ → スライス送り / 2本指でピンチ', 3600), 500);
+requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

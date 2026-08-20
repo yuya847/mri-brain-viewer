@@ -1,0 +1,11 @@
+# 個人情報を含むものは絶対にコミットしない
+dicom/
+*.dcm
+DICOMDIR
+manifest.json
+MRI_full.html
+web-build/
+
+.venv/
+__pycache__/
+.DS_Store
