@@ -21,7 +21,7 @@
     -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
     -webkit-tap-highlight-color:transparent;
   }
-  #app{display:grid;grid-template-columns:170px 1fr;height:100%}
+  #app{display:grid;grid-template-columns:170px minmax(0,1fr);height:100%}
 
   /* ---------- sidebar ---------- */
   #side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -65,7 +65,7 @@
   #zenExit{display:none;position:absolute;z-index:5;top:calc(8px + env(safe-area-inset-top));right:10px;
            width:34px;height:34px;padding:0;border-radius:17px;background:#000a;font-size:15px}
   body.zen #side,body.zen #bar,body.zen #foot{display:none}
-  body.zen #app{grid-template-columns:1fr;grid-template-rows:1fr}
+  body.zen #app{grid-template-columns:minmax(0,1fr);grid-template-rows:1fr}
   body.zen #zenExit{display:block}
   body.zen .ov{padding-top:env(safe-area-inset-top)}
   body.zen #ovTR{right:52px}
@@ -79,16 +79,19 @@
   #toast.on{opacity:1}
 
   @media (max-width:760px){
-    #app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+    /* minmax(0,1fr) にしないとトラックが中身の幅まで伸び、画面外にはみ出して横スクロールできなくなる */
+    #app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
     #side{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);align-items:center;
-          padding-top:env(safe-area-inset-top)}
+          min-width:0;padding-top:env(safe-area-inset-top)}
     #sideHead,#hint{display:none}
-    #serList{display:flex;flex:1;padding:6px;gap:6px;overflow-x:auto;overflow-y:hidden}
+    #serList{display:flex;flex:1;min-width:0;padding:6px;gap:6px;overflow-x:auto;overflow-y:hidden;
+             touch-action:pan-x;-webkit-overflow-scrolling:touch}
     .ser{flex-direction:column;min-width:74px;padding:5px}
     .ser img{width:52px;height:52px}
     .ser .n{font-size:10.5px;max-width:66px}
     /* ツールバーは折り返さず横スクロール（縦を画像に使う） */
-    #bar{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding:6px}
+    #bar{flex-wrap:nowrap;min-width:0;overflow-x:auto;overflow-y:hidden;touch-action:pan-x;
+         -webkit-overflow-scrolling:touch;padding:6px}
     .btn{padding:8px 12px;font-size:13px}
     #bar label{flex:none}
     #foot{padding-bottom:calc(7px + env(safe-area-inset-bottom))}
@@ -261,6 +264,7 @@ function selectSeries(i, keepView){
   applyPreset('def');
   prefetch();
   [...serList.children].forEach((e,k)=>e.classList.toggle('on', k===i));
+  serList.children[i].scrollIntoView({block:'nearest', inline:'nearest'});   // 横スクロール中でも選択中を見せる
   $('#slider').max = SER[i].count-1;
   S.dirty = true;
 }
